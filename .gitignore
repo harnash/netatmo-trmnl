@@ -1,2 +1,4 @@
 .env
-/netatmo-trmnl.sqlite3
+netatmo-trmnl.sqlite3
+.idea/
+.vscode/
