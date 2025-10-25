@@ -1,0 +1,4 @@
+CREATE TABLE config (
+    key VARCHAR(100) PRIMARY KEY,
+    value VARCHAR(250) NOT NULL
+);
