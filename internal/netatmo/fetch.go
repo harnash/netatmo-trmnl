@@ -10,7 +10,7 @@ import (
 	"github.com/hekmon/go-netatmo"
 	"github.com/hekmon/go-netatmo/weather"
 	"github.com/pkg/errors"
-	"go.uber.org/zap"
+	"log/slog"
 )
 
 type Reading struct {
@@ -36,7 +36,7 @@ type Source struct {
 	ModuleNames []string `yaml:"ModuleNames"`
 }
 
-func FetchData(logger *zap.SugaredLogger, sources []Source, apiClientId, apiSecret, token, refreshToken string, tokenExpiry, since time.Time) (measurements []Measurement, curAuthToken string, curRefreshToken string, curTokenExpiry string, err error) {
+func FetchData(logger *slog.Logger, sources []Source, apiClientId, apiSecret, token, refreshToken string, tokenExpiry, since time.Time) (measurements []Measurement, curAuthToken string, curRefreshToken string, curTokenExpiry string, err error) {
 	if len(apiClientId) == 0 {
 		return nil, "", "", "", errors.New("empty API client ID")
 	}

@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/harnash/netatmo-trmnl/internal/netatmo"
 	"github.com/harnash/netatmo-trmnl/internal/store"
 	"github.com/labstack/echo-contrib/echoprometheus"
 	"github.com/labstack/echo/v4/middleware"
@@ -11,6 +13,7 @@ import (
 	"golang.org/x/time/rate"
 	"html/template"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -54,7 +57,14 @@ func NewTemplateRegistry() (*TemplateRegistry, error) {
 		if tmplFile == "public/views/base.html" {
 			continue
 		}
-		templates[filepath.Base(tmplFile)] = template.Must(template.ParseFiles(tmplFile, "public/views/base.html"))
+
+		templates[filepath.Base(tmplFile)] = template.Must(template.New(tmplFile).Funcs(
+			template.FuncMap{
+				"marshal": func(v interface{}) template.JS {
+					a, _ := json.Marshal(v)
+					return template.JS(a)
+				},
+			}).ParseFiles(tmplFile, "public/views/base.html"))
 	}
 	return &TemplateRegistry{
 		templates: templates,
@@ -141,8 +151,27 @@ func main() {
 			"loginLink": url,
 		})
 	})
-	e.GET("/setup", func(c echo.Context) error {
-		return c.String(http.StatusNotImplemented, "")
+	e.GET("/dashboard", func(c echo.Context) error {
+		src := []netatmo.Source{{
+			StationName: "Salon",
+			ModuleNames: []string{"balkon"},
+		}}
+		logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+		measures, newToken, newRefreshToken, _, err := netatmo.FetchData(logger, src, cfg.ClientID, cfg.ClientSecret, cfg.APIAuth.AccessToken, "", time.Now(), time.Now().Add(-1*time.Hour))
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("error while fetching data: %s", err.Error()))
+		}
+		if newToken != cfg.APIAuth.AccessToken {
+			cfg.APIAuth.AccessToken = newToken
+			cfg.APIAuth.RefreshToken = newRefreshToken
+			err = dataStore.SetAccessToken(c.Request().Context(), newToken)
+			if err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("error while storing new access token: %s", err.Error()))
+			}
+		}
+		return c.Render(http.StatusOK, "dashboard.html", map[string]interface{}{
+			"currentData": measures,
+		})
 	})
 	e.GET("/redirect", func(c echo.Context) error {
 		if c.QueryParam("error") != "" {
@@ -157,7 +186,7 @@ func main() {
 			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("error while storing access token: %s", err.Error()))
 		}
 
-		return c.Redirect(http.StatusSeeOther, "/setup")
+		return c.Redirect(http.StatusSeeOther, "/dashboard")
 	})
 	e.Logger.Fatal(e.Start(":1323"))
 }
