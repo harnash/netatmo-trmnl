@@ -1,0 +1,71 @@
+{{define "base.html"}}<html lang="en">
+<head>
+    <script src="https://unpkg.com/htmx.org"></script>
+    {{template "head" .}}
+    <style>
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: #333;
+            color: white;
+            padding: 10px 20px;
+            font-family: Arial, sans-serif;
+        }
+
+        .toolbar-left {
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .toolbar-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        button {
+            background-color: #555;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #777;
+        }
+    </style>
+
+    <script>
+        const loginStatus = document.getElementById("login-status");
+        const loginButton = document.getElementById("login-button");
+        const logoutButton = document.getElementById("logout-button");
+
+        loginButton.addEventListener("click", () => {
+            loginStatus.textContent = "Status: Logged in";
+            loginButton.style.display = "none";
+            logoutButton.style.display = "inline-block";
+        });
+
+        logoutButton.addEventListener("click", () => {
+            loginStatus.textContent = "Status: Logged out";
+            logoutButton.style.display = "none";
+            loginButton.style.display = "inline-block";
+        });
+    </script>
+</head>
+<body>
+<div class="toolbar">
+    <div class="toolbar-left">
+        <span class="app-name">Netatmo Terminal</span>
+    </div>
+    <div class="toolbar-right">
+        <span id="login-status">Status: Logged out</span>
+        <button id="login-button">Login</button>
+        <button id="logout-button" style="display: none;">Logout</button>
+    </div>
+</div>
+{{template "body" .}}
+</body>
+</html>{{end}}

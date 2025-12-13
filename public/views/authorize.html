@@ -1,7 +1,8 @@
-<html lang="en">
-<body>
+{{define "head"}}
+    <title>Authorize</title>
+{{end}}
+{{define "body"}}
 <h1>Grant access to your weather station data (read only)</h1>
 
 <a href="{{ index . "loginLink" }}">Request access</a>
-</body>
-</html>
+{{end}}

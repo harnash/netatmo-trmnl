@@ -21,7 +21,7 @@ func (q *Queries) GetConfigValue(ctx context.Context, key string) (string, error
 }
 
 const setConfigValue = `-- name: SetConfigValue :exec
-INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=value
+INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value
 `
 
 type SetConfigValueParams struct {

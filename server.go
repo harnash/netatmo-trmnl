@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"github.com/harnash/netatmo-trmnl/internal/store"
 	"github.com/labstack/echo-contrib/echoprometheus"
@@ -11,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -28,15 +31,37 @@ type config struct {
 	}
 }
 
-type Template struct {
-	templates *template.Template
+type TemplateRegistry struct {
+	templates map[string]*template.Template
 }
 
-const APP_NAME = "netatmo-trmnl"
-
-func (t *Template) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
-	return t.templates.ExecuteTemplate(w, name, data)
+func (t *TemplateRegistry) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
+	tmpl, ok := t.templates[name]
+	if !ok {
+		err := errors.New("Template not found -> " + name)
+		return err
+	}
+	return tmpl.ExecuteTemplate(w, "base.html", data)
 }
+
+func NewTemplateRegistry() (*TemplateRegistry, error) {
+	templates := make(map[string]*template.Template)
+	files, err := filepath.Glob("public/views/*.html")
+	if err != nil {
+		return nil, errors.New("cannot open template files")
+	}
+	for _, tmplFile := range files {
+		if tmplFile == "public/views/base.html" {
+			continue
+		}
+		templates[filepath.Base(tmplFile)] = template.Must(template.ParseFiles(tmplFile, "public/views/base.html"))
+	}
+	return &TemplateRegistry{
+		templates: templates,
+	}, nil
+}
+
+const AppName = "netatmo-trmnl"
 
 func main() {
 	cfg := config{
@@ -62,11 +87,19 @@ func main() {
 		log.Fatal(err)
 	}
 
-	e := echo.New()
-	renderer := &Template{
-		templates: template.Must(template.ParseGlob("public/views/*.html")),
+	currentToken, err := dataStore.GetAccessToken(context.Background())
+	if err != nil {
+		log.Fatal(err)
 	}
-	e.Renderer = renderer
+
+	cfg.APIAuth.AccessToken = currentToken
+
+	e := echo.New()
+	e.Renderer, err = NewTemplateRegistry()
+	if err != nil {
+		log.Fatal(err)
+	}
+	e.Logger.SetLevel(log.DEBUG)
 
 	skipper := func(c echo.Context) bool {
 		// Skip health check endpoint
@@ -75,7 +108,7 @@ func main() {
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Skipper: skipper,
 	}))
-	e.Use(echoprometheus.NewMiddleware(APP_NAME)) // adds middleware to gather metrics
+	e.Use(echoprometheus.NewMiddleware(AppName)) // adds middleware to gather metrics
 	e.Use(middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(rate.Limit(20))))
 	e.Use(middleware.RecoverWithConfig(middleware.RecoverConfig{
 		StackSize: 1 << 10, // 1 KB
@@ -100,7 +133,6 @@ func main() {
 	e.GET("/metrics", echoprometheus.NewHandler()) // adds route to serve gathered metrics
 	e.GET("/", func(c echo.Context) error {
 		if cfg.APIAuth.AccessToken != "" {
-
 		}
 		verifier := oauth2.GenerateVerifier()
 		url := oauthConf.AuthCodeURL("state", oauth2.AccessTypeOffline, oauth2.S256ChallengeOption(verifier))
@@ -116,7 +148,11 @@ func main() {
 		if c.QueryParam("error") != "" {
 			return echo.NewHTTPError(http.StatusBadRequest, c.QueryParam("error"))
 		}
-		err = dataStore.SetAccessToken(c.Request().Context(), c.Param("code"))
+		if c.QueryParam("code") == "" {
+			return echo.NewHTTPError(http.StatusBadRequest, "missing code query parameter")
+		}
+		c.Logger().Infof("storing access token: %s", c.QueryParam("code"))
+		err = dataStore.SetAccessToken(c.Request().Context(), c.QueryParam("code"))
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("error while storing access token: %s", err.Error()))
 		}
