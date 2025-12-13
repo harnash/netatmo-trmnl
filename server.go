@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +32,7 @@ type config struct {
 	APIAuth      struct {
 		AccessToken  string
 		RefreshToken string
+		TokenExpiry  time.Time
 	}
 }
 
@@ -86,9 +88,11 @@ func main() {
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
 		Scopes:       []string{"read_station", "read_thermostat"},
+		RedirectURL:  "http://localhost:1323/redirect",
 		Endpoint: oauth2.Endpoint{
-			AuthURL:  cfg.AuthURL,
-			TokenURL: cfg.TokenURL,
+			AuthURL:   cfg.AuthURL,
+			TokenURL:  cfg.TokenURL,
+			AuthStyle: oauth2.AuthStyleInParams,
 		},
 	}
 
@@ -98,11 +102,31 @@ func main() {
 	}
 
 	currentToken, err := dataStore.GetAccessToken(context.Background())
-	if err != nil {
+	if errors.Is(err, sql.ErrNoRows) {
+		log.Info("no access token found in the datastore")
+	} else if err != nil {
 		log.Fatal(err)
+	} else {
+		cfg.APIAuth.AccessToken = currentToken
 	}
 
-	cfg.APIAuth.AccessToken = currentToken
+	refreshToken, err := dataStore.GetRefreshToken(context.Background())
+	if errors.Is(err, sql.ErrNoRows) {
+		log.Info("no refresh token found in the datastore")
+	} else if err != nil {
+		log.Fatal(err)
+	} else {
+		cfg.APIAuth.RefreshToken = refreshToken
+	}
+
+	tokenExpiry, err := dataStore.GetTokenExpiry(context.Background())
+	if errors.Is(err, sql.ErrNoRows) {
+		log.Info("no token expiry found in the datastore")
+	} else if err != nil {
+		log.Fatal(err)
+	} else {
+		cfg.APIAuth.TokenExpiry = tokenExpiry
+	}
 
 	e := echo.New()
 	e.Renderer, err = NewTemplateRegistry()
@@ -143,6 +167,7 @@ func main() {
 	e.GET("/metrics", echoprometheus.NewHandler()) // adds route to serve gathered metrics
 	e.GET("/", func(c echo.Context) error {
 		if cfg.APIAuth.AccessToken != "" {
+			return c.Redirect(http.StatusSeeOther, "/dashboard")
 		}
 		verifier := oauth2.GenerateVerifier()
 		url := oauthConf.AuthCodeURL("state", oauth2.AccessTypeOffline, oauth2.S256ChallengeOption(verifier))
@@ -153,21 +178,33 @@ func main() {
 	})
 	e.GET("/dashboard", func(c echo.Context) error {
 		src := []netatmo.Source{{
-			StationName: "Salon",
+			StationName: "Dom",
 			ModuleNames: []string{"balkon"},
 		}}
-		logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-		measures, newToken, newRefreshToken, _, err := netatmo.FetchData(logger, src, cfg.ClientID, cfg.ClientSecret, cfg.APIAuth.AccessToken, "", time.Now(), time.Now().Add(-1*time.Hour))
+		logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		measures, newToken, newRefreshToken, newExpiry, err := netatmo.FetchData(logger, src, cfg.ClientID, cfg.ClientSecret, cfg.APIAuth.AccessToken, cfg.APIAuth.RefreshToken, cfg.APIAuth.TokenExpiry, time.Now().Add(48*time.Hour))
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("error while fetching data: %s", err.Error()))
 		}
-		if newToken != cfg.APIAuth.AccessToken {
+		if newToken != "" && newToken != cfg.APIAuth.AccessToken {
 			cfg.APIAuth.AccessToken = newToken
 			cfg.APIAuth.RefreshToken = newRefreshToken
+			cfg.APIAuth.TokenExpiry = newExpiry
 			err = dataStore.SetAccessToken(c.Request().Context(), newToken)
 			if err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("error while storing new access token: %s", err.Error()))
 			}
+			err = dataStore.SetRefreshToken(c.Request().Context(), newRefreshToken)
+			if err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("error while storing new refresh token: %s", err.Error()))
+			}
+			err = dataStore.SetTokenExpiry(c.Request().Context(), newExpiry)
+			if err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("error while storing new token expiry: %s", err.Error()))
+			}
+		}
+		if c.Request().Header.Get("Accept") == "application/json" {
+			return c.JSON(http.StatusOK, measures)
 		}
 		return c.Render(http.StatusOK, "dashboard.html", map[string]interface{}{
 			"currentData": measures,
@@ -177,14 +214,30 @@ func main() {
 		if c.QueryParam("error") != "" {
 			return echo.NewHTTPError(http.StatusBadRequest, c.QueryParam("error"))
 		}
-		if c.QueryParam("code") == "" {
+		exchangeCode := c.QueryParam("code")
+		if exchangeCode == "" {
 			return echo.NewHTTPError(http.StatusBadRequest, "missing code query parameter")
 		}
-		c.Logger().Infof("storing access token: %s", c.QueryParam("code"))
-		err = dataStore.SetAccessToken(c.Request().Context(), c.QueryParam("code"))
+		token, err := oauthConf.Exchange(c.Request().Context(), exchangeCode, oauth2.AccessTypeOffline)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("error while exchanging code for token: %s", err.Error()))
+		}
+		err = dataStore.SetAccessToken(c.Request().Context(), token.AccessToken)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("error while storing access token: %s", err.Error()))
 		}
+		err = dataStore.SetRefreshToken(c.Request().Context(), token.RefreshToken)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("error while storing refresh token: %s", err.Error()))
+		}
+		err = dataStore.SetTokenExpiry(c.Request().Context(), token.Expiry)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("error while storing token expiry: %s", err.Error()))
+		}
+
+		cfg.APIAuth.AccessToken = token.AccessToken
+		cfg.APIAuth.RefreshToken = token.RefreshToken
+		cfg.APIAuth.TokenExpiry = token.Expiry
 
 		return c.Redirect(http.StatusSeeOther, "/dashboard")
 	})

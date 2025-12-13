@@ -2,5 +2,12 @@
 <title>Dashboard</title>
 {{end}}
 {{define "body"}}
-Current data: {{ marshal index . "currentData" }}<br>
+<h1>Weather Station Dashboard</h1>
+{{ with index .currentData 0 }}
+Station '{{ .StationReading.Name }}', temperature: {{ .StationReading.Temperature }}<br>
+{{ range .ModuleReadings }}
+Module '{{ .Name }}', temperature: {{ .Temperature }}<br>
+{{ end }}
+{{ end }}
+
 {{end}}

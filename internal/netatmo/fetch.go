@@ -36,21 +36,21 @@ type Source struct {
 	ModuleNames []string `yaml:"ModuleNames"`
 }
 
-func FetchData(logger *slog.Logger, sources []Source, apiClientId, apiSecret, token, refreshToken string, tokenExpiry, since time.Time) (measurements []Measurement, curAuthToken string, curRefreshToken string, curTokenExpiry string, err error) {
+func FetchData(logger *slog.Logger, sources []Source, apiClientId, apiSecret, token, refreshToken string, tokenExpiry, since time.Time) (measurements []Measurement, curAuthToken string, curRefreshToken string, curTokenExpiry time.Time, err error) {
 	if len(apiClientId) == 0 {
-		return nil, "", "", "", errors.New("empty API client ID")
+		return nil, "", "", time.UnixMicro(0), errors.New("empty API client ID")
 	}
 	if len(apiSecret) == 0 {
-		return nil, "", "", "", errors.New("empty API secret")
+		return nil, "", "", time.UnixMicro(0), errors.New("empty API secret")
 	}
 	if len(token) == 0 {
-		return nil, "", "", "", errors.New("empty token")
+		return nil, "", "", time.UnixMicro(0), errors.New("empty token")
 	}
 	if len(refreshToken) == 0 {
-		return nil, "", "", "", errors.New("empty refreshToken")
+		return nil, "", "", time.UnixMicro(0), errors.New("empty refreshToken")
 	}
 	if len(sources) == 0 {
-		return nil, "", "", "", errors.New("no measurements to fetch")
+		return nil, "", "", time.UnixMicro(0), errors.New("no measurements to fetch")
 	}
 
 	logger.With("clientId", apiClientId).Info("connecting to the Netatmo API")
@@ -64,14 +64,14 @@ func FetchData(logger *slog.Logger, sources []Source, apiClientId, apiSecret, to
 	tokenSource := oauthConfig.TokenSource(context.TODO(), prevToken)
 	curToken, err := tokenSource.Token()
 	if err != nil {
-		return nil, "", "", "", errors.Wrap(err, "could not refresh the token")
+		return nil, "", "", time.UnixMicro(0), errors.Wrap(err, "could not refresh the token")
 	}
 	if curToken.AccessToken != prevToken.AccessToken {
 		curAuthToken = curToken.AccessToken
 		curRefreshToken = curToken.RefreshToken
 		logger.With("old_token", token, "new_token", curToken.AccessToken, "old_refresh", refreshToken, "new_refresh", curToken.RefreshToken, "new_expiry", curToken.Expiry)
 
-		curTokenExpiry = curToken.Expiry.Format(time.RFC3339)
+		curTokenExpiry = curToken.Expiry
 	}
 	authedClient, err := netatmo.NewClientWithTokens(context.TODO(), oauthConfig, curToken, nil)
 	if err != nil {
