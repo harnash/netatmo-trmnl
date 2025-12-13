@@ -67,7 +67,7 @@ func TestDataStore_SetAccessToken(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	mock.ExpectExec(`^--.+\sINSERT INTO config \(key, value\) VALUES \(\?, \?\) ON CONFLICT\(key\) DO UPDATE SET value=value`).WithArgs("access_token", "new-token").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`^--.+\sINSERT INTO config \(key, value\) VALUES \(\?, \?\) ON CONFLICT\(key\) DO UPDATE SET value=excluded.value`).WithArgs("access_token", "new-token").WillReturnResult(sqlmock.NewResult(1, 1))
 	tests := []struct {
 		name    string
 		fields  fields
