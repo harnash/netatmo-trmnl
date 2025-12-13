@@ -36,7 +36,7 @@ type Source struct {
 	ModuleNames []string `yaml:"ModuleNames"`
 }
 
-func FetchData(logger *slog.Logger, sources []Source, apiClientId, apiSecret, token, refreshToken string, tokenExpiry, since time.Time) (measurements []Measurement, curAuthToken string, curRefreshToken string, curTokenExpiry time.Time, err error) {
+func FetchData(logger *slog.Logger, sources []Source, apiClientId, apiSecret, token, refreshToken string, tokenExpiry time.Time) (measurements []Measurement, curAuthToken string, curRefreshToken string, curTokenExpiry time.Time, err error) {
 	if len(apiClientId) == 0 {
 		return nil, "", "", time.UnixMicro(0), errors.New("empty API client ID")
 	}
@@ -87,7 +87,6 @@ func FetchData(logger *slog.Logger, sources []Source, apiClientId, apiSecret, to
 	logger.With("num_devices", len(devices.Devices)).Debug("got response with stations data")
 
 	foundMeasurements := 0
-	now := time.Now().UTC()
 	for _, device := range devices.Devices {
 		for _, source := range sources {
 			log := logger.With("home_name", device.HomeName)
@@ -109,7 +108,7 @@ func FetchData(logger *slog.Logger, sources []Source, apiClientId, apiSecret, to
 					log.With("module_name", module.ModuleName, "configured_names", source.ModuleNames).Debug("found module name")
 					for _, moduleName := range source.ModuleNames {
 						if strings.TrimSpace(moduleName) == strings.TrimSpace(module.ModuleName) {
-							log.With("since", since.Unix(), "until", now.Unix()).Info("found module with a proper name - fetching data")
+							log.Info("found module with a proper name - fetching data")
 							log.With("module", module).Info("found module")
 							if module.DashboardDataIndoor != nil {
 								data.ModuleReadings = append(data.ModuleReadings, Reading{

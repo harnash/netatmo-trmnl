@@ -182,7 +182,7 @@ func main() {
 			ModuleNames: []string{"balkon"},
 		}}
 		logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
-		measures, newToken, newRefreshToken, newExpiry, err := netatmo.FetchData(logger, src, cfg.ClientID, cfg.ClientSecret, cfg.APIAuth.AccessToken, cfg.APIAuth.RefreshToken, cfg.APIAuth.TokenExpiry, time.Now().Add(48*time.Hour))
+		measures, newToken, newRefreshToken, newExpiry, err := netatmo.FetchData(logger, src, cfg.ClientID, cfg.ClientSecret, cfg.APIAuth.AccessToken, cfg.APIAuth.RefreshToken, cfg.APIAuth.TokenExpiry)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("error while fetching data: %s", err.Error()))
 		}
