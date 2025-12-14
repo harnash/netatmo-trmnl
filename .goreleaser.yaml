@@ -1,0 +1,19 @@
+project_name: netatmo-trmnl
+builds:
+  - env: [CGO_ENABLED=0]
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+nfpms:
+  - maintainer: Łukasz "harnash" Harsimowicz <dev@harnash.eu>
+    description: Trmnl dashboard for Netatmo Weather Station
+    homepage: https://github.com/harnash/netatmo-trmnl
+    license: Apache 2.0
+    formats:
+      - deb
+      - rpm
+      - apk
