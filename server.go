@@ -8,9 +8,14 @@ import (
 	"fmt"
 	"github.com/harnash/netatmo-trmnl/internal/netatmo"
 	"github.com/harnash/netatmo-trmnl/internal/store"
+	"github.com/knadh/koanf/parsers/dotenv"
+	"github.com/knadh/koanf/providers/env/v2"
+	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/v2"
 	"github.com/labstack/echo-contrib/echoprometheus"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/log"
+	slogecho "github.com/samber/slog-echo"
 	"golang.org/x/time/rate"
 	"html/template"
 	"io"
@@ -25,15 +30,18 @@ import (
 )
 
 type config struct {
-	AuthURL      string
-	TokenURL     string
-	ClientID     string
-	ClientSecret string
+	LogLevel     string `koanf:"TRMNL_LOG_LEVEL"`
+	ServiceURL   string `koanf:"TRMNL_SERVICE_URL"`
+	ServicePort  string `koanf:"TRMNL_SERVICE_PORT"`
+	AuthURL      string `koanf:"TRMNL_AUTH_URL"`
+	TokenURL     string `koanf:"TRMNL_TOKEN_URL"`
+	ClientID     string `koanf:"TRMNL_CLIENT_ID"`
+	ClientSecret string `koanf:"TRMNL_CLIENT_SECRET"`
 	APIAuth      struct {
-		AccessToken  string
-		RefreshToken string
-		TokenExpiry  time.Time
-	}
+		AccessToken  string    `koanf:"ACCESS_TOKEN"`
+		RefreshToken string    `koanf:"REFRESH_TOKEN"`
+		TokenExpiry  time.Time `koanf:"TOKEN_EXPIRY"`
+	} `koanf:"TRMNL_API_AUTH"`
 }
 
 type TemplateRegistry struct {
@@ -75,20 +83,41 @@ func NewTemplateRegistry() (*TemplateRegistry, error) {
 
 const AppName = "netatmo-trmnl"
 
+// Global koanf instance. Use "." as the key path delimiter. This can be "/" or any character.
+var k = koanf.New(".")
+
+func ParseLevel(s string) (slog.Level, error) {
+	var level slog.Level
+	var err = level.UnmarshalText([]byte(s))
+	return level, err
+}
+
 func main() {
 	cfg := config{
-		AuthURL:      "https://api.netatmo.com/oauth2/authorize",
-		TokenURL:     "https://api.netatmo.com/oauth2/token",
-		ClientID:     os.Getenv("NETATMO_CLIENT_ID"),
-		ClientSecret: os.Getenv("NETATMO_CLIENT_SECRET"),
+		LogLevel: "info",
+		AuthURL:  "https://api.netatmo.com/oauth2/authorize",
+		TokenURL: "https://api.netatmo.com/oauth2/token",
 	}
 
-	// ctx := context.Background()
+	// Load JSON config.
+	if err := k.Load(file.Provider(".env"), dotenv.ParserEnv("TRMNL_", ".", nil)); err != nil {
+		log.Fatalf("error loading config: %v", err)
+	}
+
+	if err := k.Load(env.Provider(".", env.Opt{Prefix: "TRMNL_"}), nil); err != nil {
+		log.Fatalf("error loading env variables: %v", err)
+	}
+
+	if err := k.Unmarshal("", &cfg); err != nil {
+		log.Fatalf("error unmarshaling config: %v", err)
+	}
+
+	ctx := context.Background()
 	oauthConf := &oauth2.Config{
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
 		Scopes:       []string{"read_station", "read_thermostat"},
-		RedirectURL:  "http://localhost:1323/redirect",
+		RedirectURL:  fmt.Sprintf("%s:%s/redirect", cfg.ServiceURL, cfg.ServicePort),
 		Endpoint: oauth2.Endpoint{
 			AuthURL:   cfg.AuthURL,
 			TokenURL:  cfg.TokenURL,
@@ -101,7 +130,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	currentToken, err := dataStore.GetAccessToken(context.Background())
+	currentToken, err := dataStore.GetAccessToken(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		log.Info("no access token found in the datastore")
 	} else if err != nil {
@@ -110,7 +139,7 @@ func main() {
 		cfg.APIAuth.AccessToken = currentToken
 	}
 
-	refreshToken, err := dataStore.GetRefreshToken(context.Background())
+	refreshToken, err := dataStore.GetRefreshToken(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		log.Info("no refresh token found in the datastore")
 	} else if err != nil {
@@ -119,7 +148,7 @@ func main() {
 		cfg.APIAuth.RefreshToken = refreshToken
 	}
 
-	tokenExpiry, err := dataStore.GetTokenExpiry(context.Background())
+	tokenExpiry, err := dataStore.GetTokenExpiry(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		log.Info("no token expiry found in the datastore")
 	} else if err != nil {
@@ -133,7 +162,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	e.Logger.SetLevel(log.DEBUG)
+
+	var logLevel slog.Level
+	if logLevel, err = ParseLevel(cfg.LogLevel); err != nil {
+		log.Fatalf("invalid log level: %v", err)
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: logLevel,
+	}))
+	e.Use(slogecho.New(logger))
 
 	skipper := func(c echo.Context) bool {
 		// Skip health check endpoint
@@ -241,5 +278,5 @@ func main() {
 
 		return c.Redirect(http.StatusSeeOther, "/dashboard")
 	})
-	e.Logger.Fatal(e.Start(":1323"))
+	e.Logger.Fatal(e.Start(":" + cfg.ServicePort))
 }
