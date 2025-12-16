@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"golang.org/x/time/rate"
 	"html/template"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -57,9 +59,9 @@ func (t *TemplateRegistry) Render(w io.Writer, name string, data interface{}, c 
 	return tmpl.ExecuteTemplate(w, "base.html", data)
 }
 
-func NewTemplateRegistry() (*TemplateRegistry, error) {
+func NewTemplateRegistry(logger *slog.Logger) (*TemplateRegistry, error) {
 	templates := make(map[string]*template.Template)
-	files, err := filepath.Glob("public/views/*.html")
+	files, err := fs.Glob(resources, "public/views/*.html")
 	if err != nil {
 		return nil, errors.New("cannot open template files")
 	}
@@ -68,13 +70,15 @@ func NewTemplateRegistry() (*TemplateRegistry, error) {
 			continue
 		}
 
+		logger.With("template", tmplFile).Debug("parsing template file")
+
 		templates[filepath.Base(tmplFile)] = template.Must(template.New(tmplFile).Funcs(
 			template.FuncMap{
 				"marshal": func(v interface{}) template.JS {
 					a, _ := json.Marshal(v)
 					return template.JS(a)
 				},
-			}).ParseFiles(tmplFile, "public/views/base.html"))
+			}).ParseFS(resources, tmplFile, "public/views/base.html"))
 	}
 	return &TemplateRegistry{
 		templates: templates,
@@ -85,6 +89,9 @@ const AppName = "netatmo-trmnl"
 
 // Global koanf instance. Use "." as the key path delimiter. This can be "/" or any character.
 var k = koanf.New(".")
+
+//go:embed public
+var resources embed.FS
 
 func ParseLevel(s string) (slog.Level, error) {
 	var level slog.Level
@@ -158,10 +165,6 @@ func main() {
 	}
 
 	e := echo.New()
-	e.Renderer, err = NewTemplateRegistry()
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	var logLevel slog.Level
 	if logLevel, err = ParseLevel(cfg.LogLevel); err != nil {
@@ -171,6 +174,11 @@ func main() {
 		Level: logLevel,
 	}))
 	e.Use(slogecho.New(logger))
+
+	e.Renderer, err = NewTemplateRegistry(logger)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	skipper := func(c echo.Context) bool {
 		// Skip health check endpoint
@@ -278,5 +286,6 @@ func main() {
 
 		return c.Redirect(http.StatusSeeOther, "/dashboard")
 	})
+	logger.With("url", cfg.ServiceURL, "port", cfg.ServicePort).Info("starting service")
 	e.Logger.Fatal(e.Start(":" + cfg.ServicePort))
 }
