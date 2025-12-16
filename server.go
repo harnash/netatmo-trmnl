@@ -221,6 +221,9 @@ func main() {
 			"loginLink": url,
 		})
 	})
+	e.GET("/robots.txt", func(c echo.Context) error {
+		return c.String(http.StatusOK, "User-agent: *\nDisallow: /")
+	})
 	e.GET("/dashboard", func(c echo.Context) error {
 		src := []netatmo.Source{{
 			StationName: "Dom",
