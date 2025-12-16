@@ -36,21 +36,21 @@ type Source struct {
 	ModuleNames []string `yaml:"ModuleNames"`
 }
 
-func FetchData(logger *slog.Logger, sources []Source, apiClientId, apiSecret, token, refreshToken string, tokenExpiry time.Time) (measurements []Measurement, curAuthToken string, curRefreshToken string, curTokenExpiry time.Time, err error) {
+func FetchData(logger *slog.Logger, sources []Source, apiClientId, apiSecret, token, refreshToken string, tokenExpiry time.Time) (measurements Measurement, curAuthToken string, curRefreshToken string, curTokenExpiry time.Time, err error) {
 	if len(apiClientId) == 0 {
-		return nil, "", "", time.UnixMicro(0), errors.New("empty API client ID")
+		return measurements, "", "", time.UnixMicro(0), errors.New("empty API client ID")
 	}
 	if len(apiSecret) == 0 {
-		return nil, "", "", time.UnixMicro(0), errors.New("empty API secret")
+		return measurements, "", "", time.UnixMicro(0), errors.New("empty API secret")
 	}
 	if len(token) == 0 {
-		return nil, "", "", time.UnixMicro(0), errors.New("empty token")
+		return measurements, "", "", time.UnixMicro(0), errors.New("empty token")
 	}
 	if len(refreshToken) == 0 {
-		return nil, "", "", time.UnixMicro(0), errors.New("empty refreshToken")
+		return measurements, "", "", time.UnixMicro(0), errors.New("empty refreshToken")
 	}
 	if len(sources) == 0 {
-		return nil, "", "", time.UnixMicro(0), errors.New("no measurements to fetch")
+		return measurements, "", "", time.UnixMicro(0), errors.New("no measurements to fetch")
 	}
 
 	logger.With("clientId", apiClientId).Info("connecting to the Netatmo API")
@@ -64,7 +64,7 @@ func FetchData(logger *slog.Logger, sources []Source, apiClientId, apiSecret, to
 	tokenSource := oauthConfig.TokenSource(context.TODO(), prevToken)
 	curToken, err := tokenSource.Token()
 	if err != nil {
-		return nil, "", "", time.UnixMicro(0), errors.Wrap(err, "could not refresh the token")
+		return measurements, "", "", time.UnixMicro(0), errors.Wrap(err, "could not refresh the token")
 	}
 	if curToken.AccessToken != prevToken.AccessToken {
 		curAuthToken = curToken.AccessToken
@@ -75,14 +75,14 @@ func FetchData(logger *slog.Logger, sources []Source, apiClientId, apiSecret, to
 	}
 	authedClient, err := netatmo.NewClientWithTokens(context.TODO(), oauthConfig, curToken, nil)
 	if err != nil {
-		return nil, curAuthToken, curRefreshToken, curTokenExpiry, errors.Wrap(err, "could not connect to the Netatmo API")
+		return measurements, curAuthToken, curRefreshToken, curTokenExpiry, errors.Wrap(err, "could not connect to the Netatmo API")
 	}
 
 	logger.Info("fetching stations data")
 	client := weather.New(authedClient)
 	devices, _, _, err := client.GetStationData(context.TODO(), weather.GetStationDataParameters{})
 	if err != nil {
-		return nil, curAuthToken, curRefreshToken, curTokenExpiry, errors.Wrap(err, "could not fetch data from the Netatmo API")
+		return measurements, curAuthToken, curRefreshToken, curTokenExpiry, errors.Wrap(err, "could not fetch data from the Netatmo API")
 	}
 	logger.With("num_devices", len(devices.Devices)).Debug("got response with stations data")
 
@@ -134,11 +134,11 @@ func FetchData(logger *slog.Logger, sources []Source, apiClientId, apiSecret, to
 						}
 					}
 				}
-				measurements = append(measurements, data)
+				measurements = data
+				return
 			}
 		}
 	}
-	logger.With("num", foundMeasurements).Info("finished fetching measurement data")
 
-	return measurements, curAuthToken, curRefreshToken, curTokenExpiry, nil
+	return
 }
