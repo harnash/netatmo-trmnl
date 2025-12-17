@@ -14,6 +14,7 @@ import (
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
 	"github.com/labstack/echo-contrib/echoprometheus"
+	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/log"
 	slogecho "github.com/samber/slog-echo"
@@ -27,7 +28,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/labstack/echo/v4"
 	"golang.org/x/oauth2"
 )
 

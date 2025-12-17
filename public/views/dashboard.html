@@ -3,7 +3,7 @@
 {{end}}
 {{define "body"}}
 <h1>Weather Station Dashboard</h1>
-{{ with index .currentData 0 }}
+{{ with .currentData }}
 Station '{{ .StationReading.Name }}', temperature: {{ .StationReading.Temperature }}<br>
 {{ range .ModuleReadings }}
 Module '{{ .Name }}', temperature: {{ .Temperature }}<br>
