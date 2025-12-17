@@ -120,11 +120,17 @@ func main() {
 	}
 
 	ctx := context.Background()
+	var redirectURL string
+	if cfg.ServicePort == "80" || cfg.ServicePort == "443" {
+		redirectURL = fmt.Sprintf("%s/redirect", cfg.ServiceURL)
+	} else {
+		redirectURL = fmt.Sprintf("%s:%s/redirect", cfg.ServiceURL, cfg.ServicePort)
+	}
 	oauthConf := &oauth2.Config{
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
 		Scopes:       []string{"read_station", "read_thermostat"},
-		RedirectURL:  fmt.Sprintf("%s:%s/redirect", cfg.ServiceURL, cfg.ServicePort),
+		RedirectURL:  redirectURL,
 		Endpoint: oauth2.Endpoint{
 			AuthURL:   cfg.AuthURL,
 			TokenURL:  cfg.TokenURL,
