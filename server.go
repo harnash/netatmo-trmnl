@@ -224,6 +224,16 @@ func main() {
 	e.GET("/robots.txt", func(c echo.Context) error {
 		return c.String(http.StatusOK, "User-agent: *\nDisallow: /")
 	})
+	e.POST("/logout", func(c echo.Context) error {
+		err := dataStore.DeleteTokens(c.Request().Context())
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("error while deleting tokens: %s", err.Error()))
+		}
+		cfg.APIAuth.AccessToken = ""
+		cfg.APIAuth.RefreshToken = ""
+		cfg.APIAuth.TokenExpiry = time.Time{}
+		return c.Redirect(http.StatusSeeOther, "/")
+	})
 	e.GET("/dashboard", func(c echo.Context) error {
 		src := []netatmo.Source{{
 			StationName: "Dom",

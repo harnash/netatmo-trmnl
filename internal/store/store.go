@@ -58,3 +58,19 @@ func (s *DataStore) GetTokenExpiry(ctx context.Context) (time.Time, error) {
 	}
 	return time.Parse(time.RFC3339, strExpiry)
 }
+
+func (s *DataStore) DeleteTokens(ctx context.Context) error {
+	err := s.query.DeleteConfigValue(ctx, tokenExpiry)
+	if err != nil {
+		return errors.Wrap(err, "could not delete token expiry from store")
+	}
+	err = s.query.DeleteConfigValue(ctx, refreshTokenKey)
+	if err != nil {
+		return errors.Wrap(err, "could not delete refresh token from store")
+	}
+	err = s.query.DeleteConfigValue(ctx, accessTokenKey)
+	if err != nil {
+		return errors.Wrap(err, "could not delete access token from store")
+	}
+	return nil
+}
