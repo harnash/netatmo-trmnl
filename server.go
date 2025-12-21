@@ -16,7 +16,7 @@ import (
 	"github.com/labstack/echo-contrib/echoprometheus"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/labstack/gommon/log"
+	gomlog "github.com/labstack/gommon/log"
 	slogecho "github.com/samber/slog-echo"
 	"golang.org/x/time/rate"
 	"html/template"
@@ -29,10 +29,12 @@ import (
 	"time"
 
 	"golang.org/x/oauth2"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 type config struct {
 	LogLevel     string `koanf:"TRMNL_LOG_LEVEL"`
+	LogFile      string `koanf:"TRMNL_LOG_FILE"`
 	ServiceURL   string `koanf:"TRMNL_SERVICE_URL"`
 	ServicePort  string `koanf:"TRMNL_SERVICE_PORT"`
 	AuthURL      string `koanf:"TRMNL_AUTH_URL"`
@@ -50,7 +52,7 @@ type TemplateRegistry struct {
 	templates map[string]*template.Template
 }
 
-func (t *TemplateRegistry) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
+func (t *TemplateRegistry) Render(w io.Writer, name string, data interface{}, _ echo.Context) error {
 	tmpl, ok := t.templates[name]
 	if !ok {
 		err := errors.New("Template not found -> " + name)
@@ -106,18 +108,50 @@ func main() {
 		TokenURL: "https://api.netatmo.com/oauth2/token",
 	}
 
+	var log *slog.Logger
+	log = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{AddSource: true, Level: slog.LevelInfo}))
+
 	// Load JSON config.
 	if err := k.Load(file.Provider(".env"), dotenv.ParserEnv("TRMNL_", ".", nil)); err != nil {
-		log.Fatalf("error loading config: %v", err)
+		log.Error("error loading config", slog.String("err", err.Error()))
+		os.Exit(1)
 	}
 
 	if err := k.Load(env.Provider(".", env.Opt{Prefix: "TRMNL_"}), nil); err != nil {
-		log.Fatalf("error loading env variables: %v", err)
+		log.Error("error loading env variables", slog.String("err", err.Error()))
+		os.Exit(2)
 	}
 
 	if err := k.Unmarshal("", &cfg); err != nil {
-		log.Fatalf("error unmarshaling config: %v", err)
+		log.Error("error unmarshaling config", slog.String("err", err.Error()))
+		os.Exit(3)
 	}
+
+	var err error
+	var logLevel slog.Level
+	if logLevel, err = ParseLevel(cfg.LogLevel); err != nil {
+		log.Error("invalid log level", slog.String("err", err.Error()))
+		logLevel = slog.LevelInfo
+	}
+
+	var logWriter io.Writer
+	if cfg.LogFile != "" {
+		logRotator := &lumberjack.Logger{
+			Filename:   cfg.LogFile,
+			MaxSize:    100,  // Max size in MB
+			MaxBackups: 5,    // Number of backups
+			MaxAge:     30,   // Days
+			Compress:   true, // Enable compression
+		}
+		logWriter = io.MultiWriter(os.Stdout, logRotator)
+	} else {
+		logWriter = os.Stdout
+	}
+
+	log = slog.New(slog.NewTextHandler(logWriter, &slog.HandlerOptions{
+		AddSource: true,
+		Level:     logLevel,
+	}))
 
 	ctx := context.Background()
 	var redirectURL string
@@ -140,14 +174,16 @@ func main() {
 
 	dataStore, err := store.InitStore("")
 	if err != nil {
-		log.Fatal(err)
+		log.Error("cannot initialize store", slog.String("err", err.Error()))
+		os.Exit(5)
 	}
 
 	currentToken, err := dataStore.GetAccessToken(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		log.Info("no access token found in the datastore")
 	} else if err != nil {
-		log.Fatal(err)
+		log.Error("cannot fetch OAuth access token", slog.String("err", err.Error()))
+		os.Exit(6)
 	} else {
 		cfg.APIAuth.AccessToken = currentToken
 	}
@@ -156,7 +192,8 @@ func main() {
 	if errors.Is(err, sql.ErrNoRows) {
 		log.Info("no refresh token found in the datastore")
 	} else if err != nil {
-		log.Fatal(err)
+		log.Error("cannot fetch OAuth refresh token", slog.String("err", err.Error()))
+		os.Exit(7)
 	} else {
 		cfg.APIAuth.RefreshToken = refreshToken
 	}
@@ -165,39 +202,70 @@ func main() {
 	if errors.Is(err, sql.ErrNoRows) {
 		log.Info("no token expiry found in the datastore")
 	} else if err != nil {
-		log.Fatal(err)
+		log.Error("cannot fetch token expiry", slog.String("err", err.Error()))
+		os.Exit(8)
 	} else {
 		cfg.APIAuth.TokenExpiry = tokenExpiry
 	}
 
 	e := echo.New()
+	e.Use(slogecho.New(log))
 
-	var logLevel slog.Level
-	if logLevel, err = ParseLevel(cfg.LogLevel); err != nil {
-		log.Fatalf("invalid log level: %v", err)
-	}
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: logLevel,
-	}))
-	e.Use(slogecho.New(logger))
-
-	e.Renderer, err = NewTemplateRegistry(logger)
+	e.Renderer, err = NewTemplateRegistry(log)
 	if err != nil {
-		log.Fatal(err)
+		log.Error("", slog.String("err", err.Error()))
+		os.Exit(9)
 	}
 
 	skipper := func(c echo.Context) bool {
 		// Skip health check endpoint
 		return c.Request().URL.Path == "/health"
 	}
-	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
-		Skipper: skipper,
+	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
+		Skipper:      skipper,
+		LogLatency:   true,
+		LogRemoteIP:  true,
+		LogMethod:    true,
+		LogReferer:   true,
+		LogRoutePath: true,
+		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
+			if v.Error == nil {
+				slog.LogAttrs(context.Background(), slog.LevelInfo, "REQUEST",
+					slog.String("method", v.Method),
+					slog.String("uri", v.URI),
+					slog.Int("status", v.Status),
+					slog.Duration("latency", v.Latency),
+					slog.String("host", v.Host),
+					slog.String("bytes_in", v.ContentLength),
+					slog.Int64("bytes_out", v.ResponseSize),
+					slog.String("user_agent", v.UserAgent),
+					slog.String("remote_ip", v.RemoteIP),
+					slog.String("request_id", v.RequestID),
+				)
+			} else {
+				slog.LogAttrs(context.Background(), slog.LevelError, "REQUEST_ERROR",
+					slog.String("method", v.Method),
+					slog.String("uri", v.URI),
+					slog.Int("status", v.Status),
+					slog.Duration("latency", v.Latency),
+					slog.String("host", v.Host),
+					slog.String("bytes_in", v.ContentLength),
+					slog.Int64("bytes_out", v.ResponseSize),
+					slog.String("user_agent", v.UserAgent),
+					slog.String("remote_ip", v.RemoteIP),
+					slog.String("request_id", v.RequestID),
+
+					slog.String("error", v.Error.Error()),
+				)
+			}
+			return nil
+		},
 	}))
 	e.Use(echoprometheus.NewMiddleware(AppName)) // adds middleware to gather metrics
 	e.Use(middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(rate.Limit(20))))
 	e.Use(middleware.RecoverWithConfig(middleware.RecoverConfig{
 		StackSize: 1 << 10, // 1 KB
-		LogLevel:  log.ERROR,
+		LogLevel:  gomlog.ERROR,
 	}))
 	e.Use(middleware.SecureWithConfig(middleware.SecureConfig{
 		HSTSMaxAge:            3600,
@@ -305,6 +373,6 @@ func main() {
 
 		return c.Redirect(http.StatusSeeOther, "/dashboard")
 	})
-	logger.With("url", cfg.ServiceURL, "port", cfg.ServicePort).Info("starting service")
+	log.Info("starting service", slog.String("url", cfg.ServiceURL), slog.String("port", cfg.ServicePort))
 	e.Logger.Fatal(e.Start(":" + cfg.ServicePort))
 }
