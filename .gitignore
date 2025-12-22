@@ -3,3 +3,4 @@ netatmo-trmnl.sqlite3
 .idea/
 .vscode/
 dist/
+trmnl.log*

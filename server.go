@@ -46,6 +46,10 @@ type config struct {
 		RefreshToken string    `koanf:"REFRESH_TOKEN"`
 		TokenExpiry  time.Time `koanf:"TOKEN_EXPIRY"`
 	} `koanf:"TRMNL_API_AUTH"`
+	Netatmo struct {
+		StationName  string   `koanf:"STATION_NAME"`
+		ModulesNames []string `koanf:"MODULES_NAMES"`
+	} `koanf:"TRMNL_NETATMO"`
 }
 
 type TemplateRegistry struct {
@@ -152,6 +156,8 @@ func main() {
 		AddSource: true,
 		Level:     logLevel,
 	}))
+
+	log.Debug("configuration loaded", slog.Any("config", cfg))
 
 	ctx := context.Background()
 	var redirectURL string
@@ -309,12 +315,11 @@ func main() {
 		return c.Redirect(http.StatusSeeOther, "/")
 	})
 	e.GET("/dashboard", func(c echo.Context) error {
-		src := []netatmo.Source{{
-			StationName: "Dom",
-			ModuleNames: []string{"balkon"},
-		}}
-		logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
-		measures, newToken, newRefreshToken, newExpiry, err := netatmo.FetchData(logger, src, cfg.ClientID, cfg.ClientSecret, cfg.APIAuth.AccessToken, cfg.APIAuth.RefreshToken, cfg.APIAuth.TokenExpiry)
+		src := netatmo.Source{
+			StationName: cfg.Netatmo.StationName,
+			ModuleNames: cfg.Netatmo.ModulesNames,
+		}
+		measures, newToken, newRefreshToken, newExpiry, err := netatmo.FetchData(log, src, cfg.ClientID, cfg.ClientSecret, cfg.APIAuth.AccessToken, cfg.APIAuth.RefreshToken, cfg.APIAuth.TokenExpiry)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("error while fetching data: %s", err.Error()))
 		}

@@ -36,7 +36,7 @@ type Source struct {
 	ModuleNames []string `yaml:"ModuleNames"`
 }
 
-func FetchData(logger *slog.Logger, sources []Source, apiClientId, apiSecret, token, refreshToken string, tokenExpiry time.Time) (measurements Measurement, curAuthToken string, curRefreshToken string, curTokenExpiry time.Time, err error) {
+func FetchData(logger *slog.Logger, source Source, apiClientId, apiSecret, token, refreshToken string, tokenExpiry time.Time) (measurements Measurement, curAuthToken string, curRefreshToken string, curTokenExpiry time.Time, err error) {
 	if len(apiClientId) == 0 {
 		return measurements, "", "", time.UnixMicro(0), errors.New("empty API client ID")
 	}
@@ -48,9 +48,6 @@ func FetchData(logger *slog.Logger, sources []Source, apiClientId, apiSecret, to
 	}
 	if len(refreshToken) == 0 {
 		return measurements, "", "", time.UnixMicro(0), errors.New("empty refreshToken")
-	}
-	if len(sources) == 0 {
-		return measurements, "", "", time.UnixMicro(0), errors.New("no measurements to fetch")
 	}
 
 	logger.With("clientId", apiClientId).Info("connecting to the Netatmo API")
@@ -88,55 +85,53 @@ func FetchData(logger *slog.Logger, sources []Source, apiClientId, apiSecret, to
 
 	foundMeasurements := 0
 	for _, device := range devices.Devices {
-		for _, source := range sources {
-			log := logger.With("home_name", device.HomeName)
-			log.Debug("found station name")
-			if device.HomeName == source.StationName {
-				log = log.With("station_name", device.ModuleName, "device_id", device.ID)
-				log.Info("found station with a proper name")
-				data := Measurement{ModuleReadings: []Reading{}}
-				data.StationReading = &Reading{
-					Name:        device.ModuleName,
-					Temperature: device.DashboardData.Temperature,
-					MinTemp:     device.DashboardData.TempMin,
-					MaxTemp:     device.DashboardData.TempMax,
-					Humidity:    int64(device.DashboardData.Humidity),
-					Timestamp:   device.DashboardData.Time,
-				}
+		log := logger.With("home_name", device.HomeName)
+		log.Debug("found station name")
+		if device.HomeName == source.StationName {
+			log = log.With("station_name", device.ModuleName, "device_id", device.ID)
+			log.Info("found station with a proper name")
+			data := Measurement{ModuleReadings: []Reading{}}
+			data.StationReading = &Reading{
+				Name:        device.ModuleName,
+				Temperature: device.DashboardData.Temperature,
+				MinTemp:     device.DashboardData.TempMin,
+				MaxTemp:     device.DashboardData.TempMax,
+				Humidity:    int64(device.DashboardData.Humidity),
+				Timestamp:   device.DashboardData.Time,
+			}
 
-				for _, module := range device.Modules {
-					log.With("module_name", module.ModuleName, "configured_names", source.ModuleNames).Debug("found module name")
-					for _, moduleName := range source.ModuleNames {
-						if strings.TrimSpace(moduleName) == strings.TrimSpace(module.ModuleName) {
-							log.Info("found module with a proper name - fetching data")
-							log.With("module", module).Info("found module")
-							if module.DashboardDataIndoor != nil {
-								data.ModuleReadings = append(data.ModuleReadings, Reading{
-									Name:        module.ModuleName,
-									Temperature: module.DashboardDataIndoor.Temperature,
-									MinTemp:     module.DashboardDataIndoor.MinTemp,
-									MaxTemp:     module.DashboardDataIndoor.MaxTemp,
-									Humidity:    module.DashboardDataIndoor.Humidity,
-									Timestamp:   module.DashboardDataIndoor.Time,
-								})
-								foundMeasurements++
-							} else if module.DashboardDataOutdoor != nil {
-								data.ModuleReadings = append(data.ModuleReadings, Reading{
-									Name:        module.ModuleName,
-									Temperature: module.DashboardDataOutdoor.Temperature,
-									MinTemp:     module.DashboardDataOutdoor.MinTemp,
-									MaxTemp:     module.DashboardDataOutdoor.MaxTemp,
-									Humidity:    module.DashboardDataOutdoor.Humidity,
-									Timestamp:   module.DashboardDataOutdoor.Time,
-								})
-								foundMeasurements++
-							}
+			for _, module := range device.Modules {
+				log.With("module_name", module.ModuleName, "configured_names", source.ModuleNames).Debug("found module name")
+				for _, moduleName := range source.ModuleNames {
+					if strings.TrimSpace(moduleName) == strings.TrimSpace(module.ModuleName) {
+						log.Info("found module with a proper name - fetching data")
+						log.With("module", module).Info("found module")
+						if module.DashboardDataIndoor != nil {
+							data.ModuleReadings = append(data.ModuleReadings, Reading{
+								Name:        module.ModuleName,
+								Temperature: module.DashboardDataIndoor.Temperature,
+								MinTemp:     module.DashboardDataIndoor.MinTemp,
+								MaxTemp:     module.DashboardDataIndoor.MaxTemp,
+								Humidity:    module.DashboardDataIndoor.Humidity,
+								Timestamp:   module.DashboardDataIndoor.Time,
+							})
+							foundMeasurements++
+						} else if module.DashboardDataOutdoor != nil {
+							data.ModuleReadings = append(data.ModuleReadings, Reading{
+								Name:        module.ModuleName,
+								Temperature: module.DashboardDataOutdoor.Temperature,
+								MinTemp:     module.DashboardDataOutdoor.MinTemp,
+								MaxTemp:     module.DashboardDataOutdoor.MaxTemp,
+								Humidity:    module.DashboardDataOutdoor.Humidity,
+								Timestamp:   module.DashboardDataOutdoor.Time,
+							})
+							foundMeasurements++
 						}
 					}
 				}
-				measurements = data
-				return
 			}
+			measurements = data
+			return
 		}
 	}
 
