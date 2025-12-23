@@ -41,6 +41,7 @@ type config struct {
 	TokenURL     string `koanf:"TRMNL_TOKEN_URL"`
 	ClientID     string `koanf:"TRMNL_CLIENT_ID"`
 	ClientSecret string `koanf:"TRMNL_CLIENT_SECRET"`
+	AuthToken    string `koanf:"TRMNL_AUTH_TOKEN"`
 	APIAuth      struct {
 		AccessToken  string    `koanf:"ACCESS_TOKEN"`
 		RefreshToken string    `koanf:"REFRESH_TOKEN"`
@@ -138,6 +139,11 @@ func main() {
 		logLevel = slog.LevelInfo
 	}
 
+	if cfg.AuthToken == "" {
+		log.Error("no auth token provided, please set TRMNL_AUTH_TOKEN environment variable or in the config file")
+		os.Exit(4)
+	}
+
 	var logWriter io.Writer
 	if cfg.LogFile != "" {
 		logRotator := &lumberjack.Logger{
@@ -216,6 +222,7 @@ func main() {
 
 	e := echo.New()
 	e.Use(slogecho.New(log))
+	e.Use(middleware.RequestID())
 
 	e.Renderer, err = NewTemplateRegistry(log)
 	if err != nil {
@@ -277,7 +284,12 @@ func main() {
 		HSTSMaxAge:            3600,
 		ContentSecurityPolicy: "default-src 'self'",
 	}))
-	e.Use(middleware.RequestID())
+	e.Use(middleware.KeyAuth(func(key string, c echo.Context) (bool, error) {
+		if key == cfg.AuthToken {
+			return true, nil
+		}
+		return false, nil
+	}))
 	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{
 		Level: 5,
 	}))
