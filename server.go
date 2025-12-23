@@ -220,7 +220,7 @@ func main() {
 	}
 
 	e := echo.New()
-	e.Use(slogecho.New(log))
+	e.Use(slogecho.NewWithFilters(log, slogecho.IgnorePath("/metrics", "/health")))
 	e.Use(middleware.RequestID())
 
 	e.Renderer, err = NewTemplateRegistry(log)
