@@ -157,7 +157,7 @@ func main() {
 		logWriter = os.Stdout
 	}
 
-	log = slog.New(slog.NewTextHandler(logWriter, &slog.HandlerOptions{
+	log = slog.New(slog.NewJSONHandler(logWriter, &slog.HandlerOptions{
 		AddSource: true,
 		Level:     logLevel,
 	}))
@@ -229,51 +229,6 @@ func main() {
 		os.Exit(9)
 	}
 
-	skipper := func(c echo.Context) bool {
-		// Skip health check endpoint
-		return c.Request().URL.Path == "/health"
-	}
-	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
-		Skipper:      skipper,
-		LogLatency:   true,
-		LogRequestID: true,
-		LogRemoteIP:  true,
-		LogMethod:    true,
-		LogReferer:   true,
-		LogRoutePath: true,
-		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
-			if v.Error == nil {
-				slog.LogAttrs(context.Background(), slog.LevelInfo, "REQUEST",
-					slog.String("method", v.Method),
-					slog.String("uri", v.URI),
-					slog.Int("status", v.Status),
-					slog.Duration("latency", v.Latency),
-					slog.String("host", v.Host),
-					slog.String("bytes_in", v.ContentLength),
-					slog.Int64("bytes_out", v.ResponseSize),
-					slog.String("user_agent", v.UserAgent),
-					slog.String("remote_ip", v.RemoteIP),
-					slog.String("request_id", v.RequestID),
-				)
-			} else {
-				slog.LogAttrs(context.Background(), slog.LevelError, "REQUEST_ERROR",
-					slog.String("method", v.Method),
-					slog.String("uri", v.URI),
-					slog.Int("status", v.Status),
-					slog.Duration("latency", v.Latency),
-					slog.String("host", v.Host),
-					slog.String("bytes_in", v.ContentLength),
-					slog.Int64("bytes_out", v.ResponseSize),
-					slog.String("user_agent", v.UserAgent),
-					slog.String("remote_ip", v.RemoteIP),
-					slog.String("request_id", v.RequestID),
-
-					slog.String("error", v.Error.Error()),
-				)
-			}
-			return nil
-		},
-	}))
 	e.Use(echoprometheus.NewMiddleware(AppName)) // adds middleware to gather metrics
 	e.Use(middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(rate.Limit(20))))
 	e.Use(middleware.RecoverWithConfig(middleware.RecoverConfig{
