@@ -237,6 +237,7 @@ func main() {
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
 		Skipper:      skipper,
 		LogLatency:   true,
+		LogRequestID: true,
 		LogRemoteIP:  true,
 		LogMethod:    true,
 		LogReferer:   true,
