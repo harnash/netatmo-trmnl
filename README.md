@@ -1,4 +1,29 @@
 # netatmo-trmnl
+### plugin configuration
+#### strategy
+```
+polling
+```
+
+#### polling url
+```
+http://netatmo-trmnl.harnash.com/dashboard
+```
+
+#### polling verb
+```
+GET
+```
+
+#### polling headers
+```
+accept=application/json&authorization=Bearer YOUR_API_TOKEN
+```
+
+#### remove bleed margin
+```
+Yes
+```
 
 ### sample layout for netatmo-trmnl
 
