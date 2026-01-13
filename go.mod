@@ -10,7 +10,7 @@ require (
 	github.com/knadh/koanf/providers/file v1.2.1
 	github.com/knadh/koanf/v2 v2.3.0
 	github.com/labstack/echo-contrib v0.17.4
-	github.com/labstack/echo/v4 v4.14.0
+	github.com/labstack/echo/v4 v4.15.0
 	github.com/pkg/errors v0.9.1
 	github.com/samber/slog-echo v1.18.0
 	golang.org/x/time v0.14.0
