@@ -8,7 +8,7 @@ require (
 	github.com/knadh/koanf/parsers/dotenv v1.1.1
 	github.com/knadh/koanf/providers/env/v2 v2.0.0
 	github.com/knadh/koanf/providers/file v1.2.1
-	github.com/knadh/koanf/v2 v2.3.0
+	github.com/knadh/koanf/v2 v2.3.2
 	github.com/labstack/echo-contrib v0.17.4
 	github.com/labstack/echo/v4 v4.14.0
 	github.com/pkg/errors v0.9.1
